@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dedications Wall</title>
+<script src="config.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{font-size:1.04vw}                       /* everything scales with screen width */
+  html,body{height:100%;overflow:hidden;cursor:none;background:var(--bg);color:var(--text);font-family:var(--body)}
+  body{background:radial-gradient(110% 80% at 50% 0%,color-mix(in srgb,var(--bg) 80%,var(--accent)) 0%,var(--bg) 50%,var(--bg-deep) 100%);
+    display:flex;flex-direction:column}
+
+  header{flex:none;display:flex;align-items:center;justify-content:space-between;padding:1.6rem 2.6rem 1rem}
+  .brand{display:flex;align-items:center;gap:1.4rem}
+  .brand img{height:4.2rem;max-width:10rem;object-fit:contain}
+  .brand h1{font-family:var(--display);font-style:italic;font-weight:500;font-size:3.4rem;line-height:1}
+  .brand p{color:var(--muted);font-size:1.15rem;margin-top:.35rem}
+  .date{font-family:var(--display);font-size:1.7rem;color:var(--muted)}
+
+  #cols{flex:1;min-height:0;display:flex;gap:1.4rem;padding:.6rem 2.6rem 0;align-items:flex-start;overflow:hidden;
+    -webkit-mask-image:linear-gradient(#000 88%,transparent);mask-image:linear-gradient(#000 88%,transparent)}
+  .col{flex:1;min-width:0;display:flex;flex-direction:column;gap:1.4rem}
+
+  .card{background:var(--card);color:var(--card-text);border-radius:.9rem;overflow:hidden;
+    box-shadow:0 .5rem 1.6rem rgba(0,0,0,.28)}
+  .card .ph{aspect-ratio:4/5;background:var(--bg-deep)}
+  .card .ph img{width:100%;height:100%;object-fit:cover;display:block}
+  .card .tx{padding:1rem 1.2rem 1.2rem}
+  .card .msg{font-size:1.2rem;line-height:1.4;overflow-wrap:anywhere;white-space:pre-wrap}
+  .card .by{font-family:var(--display);font-style:italic;font-size:1.45rem;margin-top:.6rem}
+
+  #empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;
+    font-family:var(--display);font-style:italic;font-size:3rem;color:var(--muted);opacity:.8}
+  #empty[hidden]{display:none}
+
+  /* spotlight */
+  #spot{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;gap:5rem;padding:5rem 7rem;
+    background:color-mix(in srgb,var(--bg-deep) 93%,transparent);backdrop-filter:blur(.6rem);
+    opacity:0;visibility:hidden;transition:opacity .7s ease,visibility 0s .7s}
+  #spot.on{opacity:1;visibility:visible;transition:opacity .7s ease}
+  #spot .ph{height:100%;max-height:48rem;aspect-ratio:4/5;border-radius:1rem;overflow:hidden;background:var(--bg-deep);
+    box-shadow:0 1rem 4rem rgba(0,0,0,.5);transform:scale(.94);transition:transform 1.1s cubic-bezier(.2,.8,.2,1)}
+  #spot.on .ph{transform:none}
+  #spot .ph img{width:100%;height:100%;object-fit:cover;display:block}
+  #spot .tx{flex:1;max-width:48rem}
+  #spot .msg{font-family:var(--display);font-style:italic;font-weight:500;line-height:1.22;overflow-wrap:anywhere;white-space:pre-wrap}
+  #spot .msg.xl{font-size:4.6rem}#spot .msg.lg{font-size:3.5rem}#spot .msg.md{font-size:2.7rem}
+  #spot .by{font-size:1.9rem;margin-top:2rem;color:var(--accent);font-weight:500}
+
+  @media (prefers-reduced-motion:reduce){#spot,#spot .ph{transition:none}}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <img id="logo" alt="" hidden>
+    <div><h1 id="w-title"></h1><p id="w-sub"></p></div>
+  </div>
+  <div class="date" id="w-date"></div>
+</header>
+<main id="cols"></main>
+<div id="empty" hidden></div>
+
+<div id="spot" aria-live="polite">
+  <div class="ph"><img id="sp-img" alt=""></div>
+  <div class="tx"><div class="msg" id="sp-msg"></div><div class="by" id="sp-by"></div></div>
+</div>
+
+<script>
+(function () {
+  var C = WALL, BR = C.brand, W = C.wall;
+  var DEMO = /[?&]demo/.test(location.search);
+  var $ = function (id) { return document.getElementById(id); };
+
+  $("w-title").textContent = BR.title;
+  $("w-sub").textContent = BR.subtitle;
+  $("w-date").textContent = BR.date || "";
+  $("empty").textContent = W.emptyText;
+  if (BR.logo) { $("logo").src = BR.logo; $("logo").hidden = false; }
+
+  /* ---------- columns ---------- */
+  var colsEl = $("cols"), cols = [];
+  function buildCols() {
+    var n = W.columns || (innerWidth >= 3000 ? 6 : innerWidth >= 1700 ? 4 : innerWidth >= 1100 ? 3 : 2);
+    colsEl.textContent = ""; cols = [];
+    for (var i = 0; i < n; i++) { var c = document.createElement("div"); c.className = "col"; colsEl.appendChild(c); cols.push(c); }
+  }
+  function shortest() { return cols.reduce(function (a, b) { return a.offsetHeight <= b.offsetHeight ? a : b; }); }
+
+  var safePhoto = function (p) { return /^data:image\/jpeg;base64,/.test(p || "") ? p : ""; };
+
+  function makeCard(e) {            // textContent only: guest text is never parsed as HTML
+    var card = document.createElement("article"); card.className = "card";
+    var ph = document.createElement("div"); ph.className = "ph";
+    var img = new Image(); img.alt = ""; img.src = safePhoto(e.photo); ph.appendChild(img);
+    var tx = document.createElement("div"); tx.className = "tx";
+    var m = document.createElement("div"); m.className = "msg"; m.textContent = e.message;
+    var b = document.createElement("div"); b.className = "by"; b.textContent = e.name;
+    tx.appendChild(m); tx.appendChild(b); card.appendChild(ph); card.appendChild(tx);
+    return card;
+  }
+
+  function insertCard(card, animate) {
+    var col = shortest(), kids = Array.prototype.slice.call(col.children);
+    var before = kids.map(function (k) { return k.getBoundingClientRect().top; });
+    col.prepend(card);
+    if (animate) {
+      kids.forEach(function (k, i) {                      // slide existing cards down smoothly
+        var d = before[i] - k.getBoundingClientRect().top;
+        if (d) k.animate([{ transform: "translateY(" + d + "px)" }, { transform: "none" }], { duration: 800, easing: "cubic-bezier(.2,.8,.2,1)" });
+      });
+      card.animate([{ opacity: 0, transform: "scale(.9)" }, { opacity: 1, transform: "none" }], { duration: 800, easing: "cubic-bezier(.2,.8,.2,1)" });
+    }
+  }
+  function trim() {                  // drop cards that have scrolled well below the screen
+    var limit = colsEl.clientHeight * 1.2;
+    cols.forEach(function (c) {
+      while (c.children.length > 1 && c.offsetHeight > limit) {
+        var last = c.lastElementChild, id = last.dataset.id;
+        last.remove(); if (id && entries.has(id)) entries.get(id).card = null;
+      }
+    });
+  }
+
+  /* ---------- data ---------- */
+  var entries = new Map();           // id -> {e, card}   (insertion order = oldest first)
+  var fresh = [];                    // ids waiting for a spotlight (arrived live)
+  var cursor = -1, firstLoad = true;
+
+  function add(id, e, live) {
+    if (entries.has(id)) return;
+    var card = makeCard(e); card.dataset.id = id;
+    entries.set(id, { e: e, card: card });
+    insertCard(card, live); trim();
+    if (live) fresh.push(id);
+    $("empty").hidden = true;
+  }
+  function remove(id) {
+    var o = entries.get(id); if (!o) return;
+    if (o.card) o.card.remove();
+    entries.delete(id); fresh = fresh.filter(function (x) { return x !== id; });
+    if (!entries.size) $("empty").hidden = false;
+  }
+  function clean(d) {
+    return { name: String(d.name || "").slice(0, 60), message: String(d.message || "").slice(0, 400), photo: d.photo || "" };
+  }
+
+  function start() {
+    buildCols(); $("empty").hidden = false;
+    if (DEMO) return demo();
+    firebase.initializeApp(C.firebase);
+    firebase.firestore().collection(C.collection).orderBy("createdAt", "desc").limit(W.maxEntries)
+      .onSnapshot(function (snap) {
+        var changes = snap.docChanges();
+        if (firstLoad) {                         // oldest first so the newest ends up on top
+          changes.slice().reverse().forEach(function (ch) { if (ch.type === "added") add(ch.doc.id, clean(ch.doc.data()), false); });
+          firstLoad = false;
+        } else {
+          changes.forEach(function (ch) {
+            if (ch.type === "added") add(ch.doc.id, clean(ch.doc.data()), true);
+            else if (ch.type === "removed") remove(ch.doc.id);
+          });
+        }
+      }, function (err) { $("empty").hidden = false; $("empty").textContent = "Can't reach the database (" + (err.code || err.message) + ")"; });
+  }
+
+  /* ---------- spotlight ---------- */
+  var spot = $("spot");
+  function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+  function pick() {
+    if (fresh.length) { var id = fresh.shift(); if (entries.has(id)) return entries.get(id).e; }
+    var ids = Array.from(entries.keys()); if (!ids.length) return null;
+    cursor = (cursor + 1) % ids.length;
+    return entries.get(ids[ids.length - 1 - cursor]).e;       // newest first, then older
+  }
+  async function show(e) {
+    var len = e.message.length;
+    $("sp-img").src = safePhoto(e.photo);
+    $("sp-msg").textContent = e.message; $("sp-msg").className = "msg " + (len <= 70 ? "xl" : len <= 150 ? "lg" : "md");
+    $("sp-by").textContent = e.name;
+    spot.classList.add("on"); await sleep(W.spotlightHoldSec * 1000);
+    spot.classList.remove("on"); await sleep(800);
+  }
+  async function loop() {
+    for (;;) {
+      await sleep(fresh.length ? 1500 : W.spotlightEverySec * 1000);   // new entries jump the queue
+      var e = pick(); if (e) await show(e);
+    }
+  }
+
+  /* ---------- demo mode (?demo): fake entries, no Firebase ---------- */
+  function demo() {
+    var names = ["Tita Baby", "Kuya Migs", "Ate Lara", "Lolo Ben", "Joy & Paolo", "Coach Dan", "Nanay Cora", "Bianca", "Uncle Rey", "The Ramos Family"];
+    var msgs = ["Wishing you a lifetime of love and laughter!", "Congratulations! Can't wait for the first dance.",
+      "May every morning feel like today. So happy for you both.", "Two of my favorite people. Cheers to forever!",
+      "Pakasalan mo ang taong kaya kang patawanin kahit pagod ka na. Mabuhay ang bagong kasal!",
+      "Thank you for letting us be part of your day. Sending all our love, always, in every season, in every place you go together.", "Finally!"];
+    var hues = [150, 12, 40, 200, 320];
+    var n = 0;
+    function fake() {
+      var cv = document.createElement("canvas"); cv.width = 360; cv.height = 450; var x = cv.getContext("2d"), h = hues[n % hues.length];
+      var g = x.createLinearGradient(0, 0, 360, 450); g.addColorStop(0, "hsl(" + h + ",45%,62%)"); g.addColorStop(1, "hsl(" + (h + 40) + ",50%,28%)");
+      x.fillStyle = g; x.fillRect(0, 0, 360, 450); x.fillStyle = "rgba(255,255,255,.85)"; x.font = "italic 180px Georgia"; x.textAlign = "center";
+      x.fillText(names[n % names.length][0], 180, 270);
+      var e = { name: names[n % names.length], message: msgs[n % msgs.length], photo: cv.toDataURL("image/jpeg", .7) };
+      n++; return e;
+    }
+    for (var i = 0; i < 9; i++) add("d" + n, fake(), false);
+    setInterval(function () { add("d" + n, fake(), true); }, 5000);
+  }
+
+  window.addEventListener("resize", function () {     // rebuild layout from the live entries
+    buildCols();
+    Array.from(entries.values()).forEach(function (o) { o.card = makeCard(o.e); });
+    var list = Array.from(entries.entries());
+    list.forEach(function (kv) { kv[1].card.dataset.id = kv[0]; insertCard(kv[1].card, false); trim(); });
+  });
+
+  start(); loop();
+})();
+</script>
+</body>
+</html>

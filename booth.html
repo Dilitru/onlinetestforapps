@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Dedications Booth</title>
+<script src="config.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  html{font-size:clamp(14px,1.9vmin,30px)}
+  html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:var(--body);
+    user-select:none;-webkit-user-select:none;touch-action:manipulation}
+  body{background:radial-gradient(120% 90% at 50% 0%,color-mix(in srgb,var(--bg) 82%,var(--accent)) 0%,var(--bg) 55%,var(--bg-deep) 100%)}
+
+  .scene{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;
+    padding:4rem 3rem 3rem;text-align:center;gap:1.8rem}
+  .scene.active{display:flex;animation:in .35s ease-out both}
+  @keyframes in{from{opacity:0;transform:translateY(1rem)}to{opacity:1;transform:none}}
+
+  h1{font-family:var(--display);font-style:italic;font-weight:500;font-size:6.2rem;line-height:1.02;letter-spacing:-.01em}
+  h2{font-family:var(--display);font-weight:500;font-size:3rem;line-height:1.1}
+  .sub{font-size:1.5rem;color:var(--muted)}
+  .logo{max-height:7rem;max-width:18rem;object-fit:contain}
+
+  button{font:inherit;cursor:pointer;border:0;border-radius:999px;min-height:4.2rem;padding:0 2.4rem;
+    font-weight:600;font-size:1.5rem;background:var(--accent);color:var(--accent-text);transition:transform .12s,opacity .2s}
+  button:active{transform:scale(.96)}
+  button:disabled{opacity:.28;pointer-events:none}
+  button.ghost{background:transparent;color:var(--text);box-shadow:inset 0 0 0 .14rem color-mix(in srgb,var(--text) 40%,transparent)}
+  button.big{min-height:5.4rem;padding:0 4.5rem;font-size:1.9rem}
+  button:focus-visible,input:focus-visible,textarea:focus-visible{outline:.2rem solid var(--accent);outline-offset:.25rem}
+
+  .row{display:flex;gap:1.2rem;flex-wrap:wrap;justify-content:center}
+
+  /* top bar: back + step bars */
+  .top{position:absolute;top:1.2rem;left:1.5rem;right:1.5rem;display:flex;align-items:center;justify-content:space-between}
+  .top button{min-height:3.2rem;font-size:1.2rem;padding:0 1.5rem}
+  .steps{display:flex;gap:.5rem}
+  .steps i{width:3rem;height:.3rem;border-radius:9px;background:color-mix(in srgb,var(--text) 22%,transparent)}
+  .steps i.on{background:var(--accent)}
+  .top .spacer{width:7rem}
+
+  input,textarea{font:inherit;width:min(46rem,92vw);border:0;border-radius:1.2rem;padding:1.2rem 1.5rem;
+    background:var(--card);color:var(--card-text);font-size:2rem;text-align:center;user-select:text;-webkit-user-select:text}
+  textarea{height:12rem;resize:none;text-align:left;font-size:1.7rem;line-height:1.35}
+  .count{color:var(--muted);font-size:1.15rem;margin-top:-1rem}
+
+  /* photo */
+  .frame{position:relative;height:min(46vh,34rem);aspect-ratio:4/5;border-radius:1.2rem;overflow:hidden;
+    background:var(--bg-deep);box-shadow:0 0 0 .14rem color-mix(in srgb,var(--text) 25%,transparent)}
+  .frame video,.frame img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:none}
+  .frame video{transform:scaleX(-1)}
+  .frame.live video,.frame.has img{display:block}
+  .frame .hint{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:1.5rem;
+    color:var(--muted);font-size:1.25rem}
+  .frame.live .hint,.frame.has .hint{display:none}
+  #count{position:absolute;inset:0;display:none;align-items:center;justify-content:center;
+    font-family:var(--display);font-size:9rem;color:#fff;text-shadow:0 .2rem 1.5rem rgba(0,0,0,.5)}
+  #flash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none}
+  #flash.go{animation:flash .45s ease-out}
+  @keyframes flash{from{opacity:.9}to{opacity:0}}
+
+  .err{color:var(--danger);font-size:1.3rem;min-height:1.6rem;max-width:40rem}
+  .spinner{width:4.5rem;height:4.5rem;border-radius:50%;border:.4rem solid color-mix(in srgb,var(--text) 20%,transparent);
+    border-top-color:var(--accent);animation:spin 1s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  .bar{width:min(22rem,60vw);height:.3rem;border-radius:9px;background:color-mix(in srgb,var(--text) 18%,transparent);overflow:hidden}
+  .bar i{display:block;height:100%;background:var(--accent);width:100%;transform-origin:left}
+
+  @media (max-height:640px){h1{font-size:4rem}.scene{gap:1.2rem}}
+  @media (prefers-reduced-motion:reduce){.scene.active{animation:none}.spinner{animation-duration:2.5s}}
+</style>
+</head>
+<body>
+
+<!-- START -->
+<section class="scene" id="s-start">
+  <img class="logo" id="logo" alt="" hidden>
+  <h1 id="b-title"></h1>
+  <div class="sub" id="b-sub"></div>
+  <p class="sub" id="b-prompt" style="color:var(--text);font-size:1.9rem"></p>
+  <button class="big" id="b-start"></button>
+</section>
+
+<!-- NAME -->
+<section class="scene" id="s-name">
+  <div class="top"><button class="ghost" data-back="start">Back</button><div class="steps"><i class="on"></i><i></i><i></i></div><div class="spacer"></div></div>
+  <h2 id="t-name"></h2>
+  <input id="in-name" type="text" autocomplete="off" autocapitalize="words" enterkeyhint="next">
+  <button class="big" id="n-next" disabled>Next</button>
+</section>
+
+<!-- PHOTO -->
+<section class="scene" id="s-photo">
+  <div class="top"><button class="ghost" data-back="name">Back</button><div class="steps"><i class="on"></i><i class="on"></i><i></i></div><div class="spacer"></div></div>
+  <h2 id="t-photo"></h2>
+  <div class="frame" id="frame">
+    <video id="vid" playsinline muted></video>
+    <img id="prev" alt="Your photo">
+    <div class="hint" id="hint">Starting camera</div>
+    <div id="count"></div>
+    <div id="flash"></div>
+  </div>
+  <div class="err" id="p-err"></div>
+  <div class="row">
+    <button id="p-shoot">Take selfie</button>
+    <button id="p-upload" class="ghost">Upload photo</button>
+    <button id="p-next" class="big" disabled>Next</button>
+  </div>
+  <input type="file" id="file" accept="image/*" hidden>
+</section>
+
+<!-- MESSAGE -->
+<section class="scene" id="s-message">
+  <div class="top"><button class="ghost" data-back="photo">Back</button><div class="steps"><i class="on"></i><i class="on"></i><i class="on"></i></div><div class="spacer"></div></div>
+  <h2 id="t-message"></h2>
+  <textarea id="in-msg"></textarea>
+  <div class="count" id="msg-count"></div>
+  <button class="big" id="m-send" disabled></button>
+</section>
+
+<!-- SENDING -->
+<section class="scene" id="s-sending">
+  <div class="spinner" id="spin"></div>
+  <h2 id="send-title">Sending</h2>
+  <div class="err" id="send-err"></div>
+  <div class="row" id="send-actions" hidden>
+    <button id="send-retry">Try again</button>
+    <button class="ghost" id="send-back">Edit message</button>
+  </div>
+</section>
+
+<!-- THANKS -->
+<section class="scene" id="s-thanks">
+  <h1 id="th-title"></h1>
+  <p class="sub" id="th-text" style="color:var(--text);font-size:1.9rem"></p>
+  <div class="bar"><i id="th-bar"></i></div>
+  <button class="ghost" id="th-again">Add another</button>
+</section>
+
+<script>
+(function () {
+  var C = WALL, B = C.booth, BR = C.brand;
+  var DEMO = /[?&]demo/.test(location.search);
+  var db = null;
+  if (!DEMO) { firebase.initializeApp(C.firebase); db = firebase.firestore(); }
+
+  var $ = function (id) { return document.getElementById(id); };
+  var PHOTO_W = 720, PHOTO_H = 900;       // 4:5, edges are cropped to fit
+
+  /* ---------- text from config ---------- */
+  $("b-title").textContent = BR.title;
+  $("b-sub").textContent = BR.subtitle;
+  $("b-prompt").textContent = B.startPrompt;
+  $("b-start").textContent = B.startButton;
+  $("t-name").textContent = B.namePrompt;
+  $("in-name").placeholder = B.namePlaceholder;
+  $("in-name").maxLength = B.maxName;
+  $("t-photo").textContent = B.photoPrompt;
+  $("t-message").textContent = B.messagePrompt;
+  $("in-msg").placeholder = B.messagePlaceholder;
+  $("in-msg").maxLength = B.maxMessage;
+  $("m-send").textContent = B.sendButton;
+  $("th-title").textContent = B.thanksTitle;
+  $("th-text").textContent = B.thanksText;
+  if (BR.logo) { var lg = $("logo"); lg.src = BR.logo; lg.hidden = false; }
+
+  /* ---------- state + scenes ---------- */
+  var state = { name: "", photo: null, message: "", docId: null };
+  var current = "start", thanksTimer = null, idleTimer = null;
+
+  function go(id) {
+    current = id;
+    document.querySelectorAll(".scene").forEach(function (s) { s.classList.toggle("active", s.id === "s-" + id); });
+    if (id === "photo") enterPhoto(); else stopCamera();
+    if (id === "name") setTimeout(function () { $("in-name").focus(); }, 150);
+    if (id === "message") setTimeout(function () { $("in-msg").focus(); }, 150);
+    armIdle();
+  }
+  document.querySelectorAll("[data-back]").forEach(function (b) {
+    b.addEventListener("click", function () { go(b.getAttribute("data-back")); });
+  });
+
+  function reset() {
+    clearTimeout(thanksTimer);
+    state = { name: "", photo: null, message: "", docId: null };
+    $("in-name").value = ""; $("in-msg").value = "";
+    clearPhotoUI(); syncName(); syncMsg();
+    go("start");
+  }
+
+  /* idle reset (only mid-flow) */
+  function armIdle() {
+    clearTimeout(idleTimer);
+    if (["name", "photo", "message"].indexOf(current) < 0) return;
+    idleTimer = setTimeout(reset, B.idleSeconds * 1000);
+  }
+  ["pointerdown", "keydown", "input"].forEach(function (ev) { document.addEventListener(ev, armIdle, true); });
+
+  $("b-start").addEventListener("click", function () { go("name"); });
+
+  /* ---------- name ---------- */
+  function syncName() { $("n-next").disabled = !$("in-name").value.trim(); }
+  $("in-name").addEventListener("input", function () { state.name = this.value; syncName(); });
+  $("in-name").addEventListener("keydown", function (e) { if (e.key === "Enter" && !$("n-next").disabled) go("photo"); });
+  $("n-next").addEventListener("click", function () { go("photo"); });
+
+  /* ---------- photo ---------- */
+  var stream = null, busy = false;
+  var frame = $("frame"), vid = $("vid"), prev = $("prev");
+
+  function clearPhotoUI() {
+    state.photo = null; prev.removeAttribute("src");
+    frame.classList.remove("has", "live"); $("p-next").disabled = true; $("p-err").textContent = "";
+    $("p-shoot").textContent = "Take selfie";
+  }
+  function setPhoto(dataUrl) {
+    state.photo = dataUrl; prev.src = dataUrl;
+    frame.classList.remove("live"); frame.classList.add("has");
+    $("p-next").disabled = false; $("p-err").textContent = ""; $("p-shoot").textContent = "Retake";
+  }
+  function enterPhoto() {
+    if (state.photo) { frame.classList.add("has"); $("p-shoot").textContent = "Retake"; return; }
+    startCamera();
+  }
+  async function startCamera() {
+    stopCamera();
+    $("hint").textContent = "Starting camera"; $("p-err").textContent = ""; $("p-shoot").disabled = false;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return noCamera("Camera isn't available here. Use Upload photo.");
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 960 } }, audio: false });
+      if (current !== "photo") { stopCamera(); return; }
+      vid.srcObject = stream; await vid.play();
+      frame.classList.remove("has"); frame.classList.add("live");
+    } catch (e) { noCamera("Camera blocked or not found. Allow camera access, or use Upload photo."); }
+  }
+  function noCamera(msg) { $("hint").textContent = "No camera"; $("p-err").textContent = msg; $("p-shoot").disabled = true; }
+  function stopCamera() {
+    if (stream) { stream.getTracks().forEach(function (t) { t.stop(); }); stream = null; }
+    vid.srcObject = null; frame.classList.remove("live");
+  }
+
+  /* center-crop any source to 4:5 and compress to JPEG */
+  function cropToJpeg(src, sw, sh, mirror) {
+    var cv = document.createElement("canvas"); cv.width = PHOTO_W; cv.height = PHOTO_H;
+    var ctx = cv.getContext("2d");
+    var k = Math.max(PHOTO_W / sw, PHOTO_H / sh), dw = sw * k, dh = sh * k;
+    ctx.fillStyle = "#000"; ctx.fillRect(0, 0, PHOTO_W, PHOTO_H);
+    ctx.save();
+    if (mirror) { ctx.translate(PHOTO_W, 0); ctx.scale(-1, 1); }
+    ctx.drawImage(src, (PHOTO_W - dw) / 2, (PHOTO_H - dh) / 2, dw, dh);
+    ctx.restore();
+    return cv.toDataURL("image/jpeg", 0.82);
+  }
+
+  $("p-shoot").addEventListener("click", async function () {
+    if (busy) return;
+    if (state.photo || !stream) { clearPhotoUI(); await startCamera(); if (!stream) return; }
+    busy = true; $("p-shoot").disabled = true; $("p-upload").disabled = true;
+    var cnt = $("count"); cnt.style.display = "flex";
+    for (var n = 3; n > 0; n--) { cnt.textContent = n; await new Promise(function (r) { setTimeout(r, 900); }); if (current !== "photo") break; }
+    cnt.style.display = "none";
+    if (current === "photo" && stream && vid.videoWidth) {
+      var f = $("flash"); f.classList.remove("go"); void f.offsetWidth; f.classList.add("go");
+      setPhoto(cropToJpeg(vid, vid.videoWidth, vid.videoHeight, true));
+      stopCamera(); frame.classList.add("has");
+    }
+    busy = false; $("p-shoot").disabled = false; $("p-upload").disabled = false;
+  });
+
+  $("p-upload").addEventListener("click", function () { $("file").value = ""; $("file").click(); });
+  $("file").addEventListener("change", async function () {
+    var file = this.files && this.files[0]; if (!file) return;
+    try {
+      var bmp = await loadBitmap(file);
+      var w = bmp.naturalWidth || bmp.width, h = bmp.naturalHeight || bmp.height;
+      setPhoto(cropToJpeg(bmp, w, h, false));
+      stopCamera(); frame.classList.add("has");
+      if (bmp.close) bmp.close();
+    } catch (e) { $("p-err").textContent = "That file couldn't be read. Pick a JPG or PNG photo."; }
+  });
+  function loadBitmap(file) {
+    if (window.createImageBitmap) {
+      return createImageBitmap(file, { imageOrientation: "from-image" }).catch(function () { return viaImg(file); });
+    }
+    return viaImg(file);
+  }
+  function viaImg(file) {
+    return new Promise(function (res, rej) {
+      var url = URL.createObjectURL(file), img = new Image();
+      img.onload = function () { URL.revokeObjectURL(url); res(img); };
+      img.onerror = rej; img.src = url;
+    });
+  }
+  $("p-next").addEventListener("click", function () { if (state.photo) go("message"); });
+
+  /* ---------- message ---------- */
+  function syncMsg() {
+    var v = $("in-msg").value;
+    $("m-send").disabled = !v.trim();
+    $("msg-count").textContent = v.length + " / " + B.maxMessage;
+  }
+  $("in-msg").addEventListener("input", function () { state.message = this.value; syncMsg(); });
+  $("m-send").addEventListener("click", send);
+
+  /* ---------- send ---------- */
+  function withTimeout(p, ms) {
+    return Promise.race([p, new Promise(function (_, rej) { setTimeout(function () { rej(new Error("timeout")); }, ms); })]);
+  }
+  async function send() {
+    if (!state.name.trim() || !state.photo || !state.message.trim()) return;
+    go("sending");
+    $("spin").hidden = false; $("send-title").textContent = "Sending"; $("send-err").textContent = ""; $("send-actions").hidden = true;
+    try {
+      if (DEMO) { await new Promise(function (r) { setTimeout(r, 1000); }); }
+      else {
+        if (!state.docId) state.docId = db.collection(C.collection).doc().id;   // same id on retry = no duplicates
+        await withTimeout(db.collection(C.collection).doc(state.docId).set({
+          name: state.name.trim().slice(0, B.maxName),
+          message: state.message.trim().slice(0, B.maxMessage),
+          photo: state.photo,
+          createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        }), 20000);
+      }
+      done();
+    } catch (e) {
+      $("spin").hidden = true; $("send-title").textContent = "Couldn't send";
+      $("send-err").textContent = e.message === "timeout" ? "No connection to the server. Check the Wi-Fi, then try again." : "Something went wrong (" + (e.code || e.message) + ").";
+      $("send-actions").hidden = false;
+    }
+  }
+  $("send-retry").addEventListener("click", send);
+  $("send-back").addEventListener("click", function () { go("message"); });
+
+  function done() {
+    go("thanks");
+    var bar = $("th-bar");
+    bar.animate([{ transform: "scaleX(1)" }, { transform: "scaleX(0)" }], { duration: B.thanksSeconds * 1000, easing: "linear", fill: "forwards" });
+    thanksTimer = setTimeout(reset, B.thanksSeconds * 1000);
+  }
+  $("th-again").addEventListener("click", reset);
+
+  reset();
+})();
+</script>
+</body>
+</html>
