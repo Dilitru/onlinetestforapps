@@ -5,10 +5,10 @@ window.WALL = {
 
   /* 1. Firebase: Project settings > Your apps > Web app > config */
   firebase: {
-    apiKey: "YOUR_API_KEY",
-    authDomain: "YOUR_PROJECT.firebaseapp.com",
-    projectId: "YOUR_PROJECT",
-    appId: "YOUR_APP_ID"
+    apiKey: "AIzaSyBg79FEPPfymPc3WjNI9AhUn_z3sa6ven8",
+    authDomain: "dedication-wall.firebaseapp.com",
+    projectId: "dedication-wall",
+    appId: "1:732193446619:web:8bde8a9a77ed54ef20cafe"
   },
   collection: "dedications",
 
