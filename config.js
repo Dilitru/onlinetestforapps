@@ -54,7 +54,9 @@ window.WALL = {
 
   /* 4. Wall (big screen) behaviour */
   wall: {
-    columns:           0,    // 0 = auto from screen width
+    rows:              2,    // rows of cards drifting left to right
+    speed:             3.5,  // drift speed, % of screen width per second
+    bottomSpace:       0,    // fraction of the screen left empty at the bottom (0.2 = bottom 20%)
     maxEntries:        200,  // newest N entries kept live
     spotlightEverySec: 12,   // gap between spotlights
     spotlightHoldSec:  9,    // how long a spotlight stays up

@@ -21,17 +21,20 @@
   .brand p{color:var(--muted);font-size:1.15rem;margin-top:.35rem}
   .date{font-family:var(--display);font-size:1.7rem;color:var(--muted)}
 
-  #cols{flex:1;min-height:0;display:flex;gap:1.4rem;padding:.6rem 2.6rem 0;align-items:flex-start;overflow:hidden;
-    -webkit-mask-image:linear-gradient(#000 88%,transparent);mask-image:linear-gradient(#000 88%,transparent)}
-  .col{flex:1;min-width:0;display:flex;flex-direction:column;gap:1.4rem}
+  #rows{flex:1;min-height:0;position:relative;display:flex;flex-direction:column;gap:1.6rem;overflow:hidden;
+    padding:.8rem 0 calc(1.6rem + var(--bottom,0) * 100vh);
+    -webkit-mask-image:linear-gradient(90deg,transparent,#000 5%,#000 95%,transparent);
+    mask-image:linear-gradient(90deg,transparent,#000 5%,#000 95%,transparent)}
+  .row{flex:1;min-height:0;position:relative}
 
-  .card{background:var(--card);color:var(--card-text);border-radius:.9rem;overflow:hidden;
-    box-shadow:0 .5rem 1.6rem rgba(0,0,0,.28)}
-  .card .ph{aspect-ratio:4/5;background:var(--bg-deep)}
+  .card{position:absolute;left:0;top:0;height:100%;display:flex;background:var(--card);color:var(--card-text);
+    border-radius:.9rem;overflow:hidden;box-shadow:0 .5rem 1.6rem rgba(0,0,0,.28);will-change:transform}
+  .card .ph{height:100%;aspect-ratio:4/5;flex:none;background:var(--bg-deep)}
   .card .ph img{width:100%;height:100%;object-fit:cover;display:block}
-  .card .tx{padding:1rem 1.2rem 1.2rem}
-  .card .msg{font-size:1.2rem;line-height:1.4;overflow-wrap:anywhere;white-space:pre-wrap}
-  .card .by{font-family:var(--display);font-style:italic;font-size:1.45rem;margin-top:.6rem}
+  .card .tx{flex:1;min-width:0;display:flex;flex-direction:column;justify-content:space-between;padding:calc(var(--ch) * .055)}
+  .card .msg{font-size:calc(var(--ch) * .052);line-height:1.35;overflow-wrap:anywhere;white-space:pre-wrap;
+    display:-webkit-box;-webkit-line-clamp:10;-webkit-box-orient:vertical;overflow:hidden}
+  .card .by{flex:none;font-family:var(--display);font-style:italic;font-size:calc(var(--ch) * .075);margin-top:.6rem}
 
   #empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;
     font-family:var(--display);font-style:italic;font-size:3rem;color:var(--muted);opacity:.8}
@@ -62,7 +65,7 @@
   </div>
   <div class="date" id="w-date"></div>
 </header>
-<main id="cols"></main>
+<main id="rows"></main>
 <div id="empty" hidden></div>
 
 <div id="spot" aria-live="polite">
@@ -82,19 +85,24 @@
   $("empty").textContent = W.emptyText;
   if (BR.logo) { $("logo").src = BR.logo; $("logo").hidden = false; }
 
-  /* ---------- columns ---------- */
-  var colsEl = $("cols"), cols = [];
-  function buildCols() {
-    var n = W.columns || (innerWidth >= 3000 ? 6 : innerWidth >= 1700 ? 4 : innerWidth >= 1100 ? 3 : 2);
-    colsEl.textContent = ""; cols = [];
-    for (var i = 0; i < n; i++) { var c = document.createElement("div"); c.className = "col"; colsEl.appendChild(c); cols.push(c); }
+  /* ---------- belt: rows of cards drifting left to right ---------- */
+  var rowsEl = $("rows"), rows = [], remPx = 20;
+  rowsEl.style.setProperty("--bottom", W.bottomSpace || 0);
+
+  function buildRows() {
+    rowsEl.textContent = ""; rows = [];
+    remPx = parseFloat(getComputedStyle(document.documentElement).fontSize) || 20;
+    for (var i = 0; i < (W.rows || 2); i++) {
+      var el = document.createElement("div"); el.className = "row"; rowsEl.appendChild(el);
+      rows.push({ el: el, cards: [], i: i, k: 1 - 0.1 * (i % 2) });   // alternate rows drift at slightly different speeds
+    }
   }
-  function shortest() { return cols.reduce(function (a, b) { return a.offsetHeight <= b.offsetHeight ? a : b; }); }
 
   var safePhoto = function (p) { return /^data:image\/jpeg;base64,/.test(p || "") ? p : ""; };
 
-  function makeCard(e) {            // textContent only: guest text is never parsed as HTML
+  function makeCard(e, rh) {         // textContent only: guest text is never parsed as HTML
     var card = document.createElement("article"); card.className = "card";
+    card.style.setProperty("--ch", rh + "px"); card.style.width = Math.round(rh * 1.7) + "px";
     var ph = document.createElement("div"); ph.className = "ph";
     var img = new Image(); img.alt = ""; img.src = safePhoto(e.photo); ph.appendChild(img);
     var tx = document.createElement("div"); tx.className = "tx";
@@ -104,59 +112,67 @@
     return card;
   }
 
-  function insertCard(card, animate) {
-    var col = shortest(), kids = Array.prototype.slice.call(col.children);
-    var before = kids.map(function (k) { return k.getBoundingClientRect().top; });
-    col.prepend(card);
-    if (animate) {
-      kids.forEach(function (k, i) {                      // slide existing cards down smoothly
-        var d = before[i] - k.getBoundingClientRect().top;
-        if (d) k.animate([{ transform: "translateY(" + d + "px)" }, { transform: "none" }], { duration: 800, easing: "cubic-bezier(.2,.8,.2,1)" });
-      });
-      card.animate([{ opacity: 0, transform: "scale(.9)" }, { opacity: 1, transform: "none" }], { duration: 800, easing: "cubic-bezier(.2,.8,.2,1)" });
-    }
-  }
-  function trim() {                  // drop cards that have scrolled well below the screen
-    var limit = colsEl.clientHeight * 1.2;
-    cols.forEach(function (c) {
-      while (c.children.length > 1 && c.offsetHeight > limit) {
-        var last = c.lastElementChild, id = last.dataset.id;
-        last.remove(); if (id && entries.has(id)) entries.get(id).card = null;
-      }
-    });
-  }
-
   /* ---------- data ---------- */
-  var entries = new Map();           // id -> {e, card}   (insertion order = oldest first)
-  var fresh = [];                    // ids waiting for a spotlight (arrived live)
-  var cursor = -1, firstLoad = true;
+  var entries = new Map();           // id -> {e}   (insertion order = oldest first)
+  var fresh = [];                    // live arrivals waiting for a spotlight
+  var beltFresh = [], beltCursor = -1, firstLoad = true;
 
   function add(id, e, live) {
     if (entries.has(id)) return;
-    var card = makeCard(e); card.dataset.id = id;
-    entries.set(id, { e: e, card: card });
-    insertCard(card, live); trim();
-    if (live) fresh.push(id);
+    entries.set(id, { e: e });
+    if (live) { fresh.push(id); beltFresh.push(id); }
     $("empty").hidden = true;
   }
   function remove(id) {
-    var o = entries.get(id); if (!o) return;
-    if (o.card) o.card.remove();
-    entries.delete(id); fresh = fresh.filter(function (x) { return x !== id; });
+    entries.delete(id);
+    fresh = fresh.filter(function (x) { return x !== id; });
+    beltFresh = beltFresh.filter(function (x) { return x !== id; });
     if (!entries.size) $("empty").hidden = false;
   }
   function clean(d) {
     return { name: String(d.name || "").slice(0, 60), message: String(d.message || "").slice(0, 400), photo: d.photo || "" };
   }
+  function nextBelt() {              // live arrivals first, then cycle newest to oldest
+    while (beltFresh.length) { var id = beltFresh.shift(); if (entries.has(id)) return entries.get(id).e; }
+    var ids = Array.from(entries.keys());
+    beltCursor = (beltCursor + 1) % ids.length;
+    return entries.get(ids[ids.length - 1 - beltCursor]).e;
+  }
+
+  var lastT = 0;
+  function tick(t) {
+    var dt = Math.min(0.1, (t - lastT) / 1000 || 0); lastT = t;
+    var rw = rowsEl.clientWidth;
+    rows.forEach(function (r) {
+      var rh = r.el.clientHeight; if (!rh || !rw) return;
+      var v = (W.speed || 3.5) * innerWidth / 100 * r.k;
+      r.cards.forEach(function (c) { c.x += v * dt; c.node.style.transform = "translate3d(" + c.x + "px,0,0)"; });
+      while (r.cards.length && r.cards[r.cards.length - 1].x > rw) r.cards.pop().node.remove();   // left the screen
+
+      if (!entries.size) return;
+      var w = Math.round(rh * 1.7), buffer = w * 0.5;
+      var gap = remPx * 1.8 + Math.max(0, 6 - entries.size) * 0.5 * w;          // sparse belt while few entries exist
+      for (var guard = 0; guard < 40; guard++) {
+        var left = r.cards[0], x;
+        if (!left) x = rw * 0.92 - w - r.i * 0.5 * (w + gap);                    // first fill: spread across the screen
+        else { if (left.x - gap <= -buffer) break; x = left.x - gap - w; }       // otherwise spawn just off the left edge
+        var node = makeCard(nextBelt(), rh);
+        node.style.transform = "translate3d(" + x + "px,0,0)";
+        r.el.appendChild(node); r.cards.unshift({ node: node, x: x });
+      }
+    });
+    requestAnimationFrame(tick);
+  }
 
   function start() {
-    buildCols(); $("empty").hidden = false;
+    buildRows(); $("empty").hidden = false;
+    requestAnimationFrame(tick);
     if (DEMO) return demo();
     firebase.initializeApp(C.firebase);
     firebase.firestore().collection(C.collection).orderBy("createdAt", "desc").limit(W.maxEntries)
       .onSnapshot(function (snap) {
         var changes = snap.docChanges();
-        if (firstLoad) {                         // oldest first so the newest ends up on top
+        if (firstLoad) {                         // first load: not "live", so no spotlight burst
           changes.slice().reverse().forEach(function (ch) { if (ch.type === "added") add(ch.doc.id, clean(ch.doc.data()), false); });
           firstLoad = false;
         } else {
@@ -213,12 +229,7 @@
     setInterval(function () { add("d" + n, fake(), true); }, 5000);
   }
 
-  window.addEventListener("resize", function () {     // rebuild layout from the live entries
-    buildCols();
-    Array.from(entries.values()).forEach(function (o) { o.card = makeCard(o.e); });
-    var list = Array.from(entries.entries());
-    list.forEach(function (kv) { kv[1].card.dataset.id = kv[0]; insertCard(kv[1].card, false); trim(); });
-  });
+  window.addEventListener("resize", buildRows);   // belt refills itself on the next frame
 
   start(); loop();
 })();
